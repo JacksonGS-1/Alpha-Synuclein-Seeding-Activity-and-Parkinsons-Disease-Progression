@@ -3,7 +3,7 @@ Project Title: Baseline α-synuclein seeding activity and Parkinson’s disease 
 
 Project Overview: Included in this repository is the R code used to create figures and analyze longitudinal clinical and a-synuclein seeding amplification assay data from the Parkinson's Progression Markers Initiative (PPMI).
 
-Dependencies: The data required to run this code can be found in the PPMI Database (www.ppmi-info.org/access-data-specimens/download-data; RRID:SCR00_6431). After downloading and curating the data from PPMI simply change the working directory to run this code. The following packages are required to run this code: dplyr, readxl, tableone, writexl, tidyr, VennDiagram, grid, lme4, lmerTest, ggplot2, sjPlot, broom.mixed, patchwork, ggpubr, RColorBrewer, vcd. 
+Dependencies: The data required to run this code can be found in the PPMI Database (www.ppmi-info.org/access-data-specimens/download-data; RRID:SCR00_6431). After downloading and curating the data from PPMI, simply update the working directory and file paths to run this code. The following packages are required to run this code: dplyr, readxl, tableone, writexl, tidyr, VennDiagram, grid, lme4, lmerTest, ggplot2, sjPlot, broom.mixed, patchwork, ggpubr, RColorBrewer, vcd. 
 
 Installation: All dependencies will be automatically installed when running this code. 
 
