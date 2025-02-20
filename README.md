@@ -10,15 +10,13 @@ Installation: All dependencies will be automatically installed when running this
 Citation: cff-version 1.2.0
 - Type: Software
 - Authors:
-  - Given-names: Jackson
-  - Family-names: Schumacher
+  - Jackson G. Schumacher
   - Email: jgschumacher@mgh.harvard.edu
   - Affiliation: >-
       Aligning Science Across Parkinson's and Massachusetts
       General Hospital
   - ORCID: 'https://orcid.org/0009-0000-4227-4710'
-  - Given-names: Xinyuan
-  - Family-names: Zhang
+  - Xinyuan Zhang
   - Email: hpxzh@channing.harvard.edu
   - Affiliation: Harvard Medical School
   - ORCID: 'https://orcid.org/0000-0002-2974-8392'
