@@ -1,4 +1,4 @@
-# a-Synuclein-Seeding-Activity-and-Parkinsons-Disease-Progression
+# Alpha-Synuclein-Seeding-Activity-and-Parkinsons-Disease-Progression
 Project Title: Baseline α-synuclein seeding activity and Parkinson’s disease progression in the Parkinson's Progression Markers Initiative cohort
 
 Project Overview: Included in this repository is the SAS code used  analyze longitudinal clinical and a-synuclein seed amplification assay data from the Parkinson's Progression Markers Initiative (PPMI) and the R code used to create figures.
