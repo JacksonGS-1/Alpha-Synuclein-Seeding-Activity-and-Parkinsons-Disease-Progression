@@ -1,0 +1,1013 @@
+---
+title: "alpha-syn SAA and genetic forms with PD progression"
+author: "Xinyuan Zhang"
+date: "`r Sys.Date()`"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, message=FALSE}
+check_and_load <- function(package, use_source = FALSE) {
+  if (!require(package, character.only = TRUE)) {
+    if (use_source) {
+      install.packages(package, dependencies = TRUE, type = "source")
+    } else {
+      install.packages(package, dependencies = TRUE)
+    }
+    library(package, character.only = TRUE)
+  }
+}
+
+check_and_load("dplyr")
+check_and_load("readxl")
+check_and_load("tableone")
+check_and_load("writexl")
+check_and_load("tidyr")
+check_and_load("VennDiagram")
+check_and_load("grid")
+check_and_load("kableExtra")
+check_and_load("haven")
+check_and_load("fuzzyjoin")
+
+check_and_load("lme4")
+check_and_load("lmerTest")
+check_and_load("ggplot2")
+check_and_load("sjPlot")
+check_and_load("broom.mixed")
+check_and_load("patchwork")
+check_and_load("cowplot")
+
+check_and_load("RColorBrewer")
+check_and_load("nlme")
+check_and_load("glmmTMB")
+
+# setwd("C:/Users/hpxzh/OneDrive - Mass General Brigham/MC1R/1_LRRK2/EBioM")
+setwd("/Users/xinyuanzhang/Library/CloudStorage/OneDrive-MassGeneralBrigham/MC1R/1_LRRK2/EBioM")
+```
+
+# Demographics
+
+Data: Data Latest 02.12.25 - Schumacher et al. 2025.xlsx
+
+```{r}
+file_path <- "C:/Users/hpxzh/OneDrive - Mass General Brigham/MC1R/1_LRRK2/EBioM/Data Latest 02.12.25 - Schumacher et al. 2025.xlsx"
+# file_path <- "/Users/xinyuanzhang/Library/CloudStorage/OneDrive-MassGeneralBrigham/MC1R/1_LRRK2/EBioM/Data Latest 02.12.25 - Schumacher et al. 2025.xlsx"
+
+data_dem1 <- read_excel(file_path, sheet = "Demographic Info")
+
+str(data_dem1)
+head(data_dem1)
+
+na_summary <- data_dem1 %>%
+  summarise_all(~ sum(is.na(.)))%>%
+  pivot_longer(cols = everything(), names_to = "Variable", values_to = "MissingValues")
+print(na_summary)
+
+num_unique_subject_id <- data_dem1 %>%
+  summarise(n_unique = n_distinct(`Subject ID`)) %>%
+  pull(n_unique)
+cat("Subject N =", num_unique_subject_id, "\n")
+```
+
+```{r}
+data_dem2 <- data_dem1 %>%
+  rename(
+    participant_id = `Subject ID`,
+    GroupID = Cohort,
+    SAA = `SAA Result`,
+    age_baseline = `Age at baseline`,
+    time_dx_to_baseline = `Time since original diagnosis at baseline`,
+    time_medication = `Time to medication initiation`,
+    education = `Years of Education`,
+    parent_pd = `Parent with PD`,
+    relative_pd = `Other Relative with PD`)
+
+chr_vars <- c("GroupID", "SAA", "Sex", "Ethnicity", "Race", "education", "parent_pd", "relative_pd")
+
+unique_values_tables <- lapply(chr_vars, function(var) {
+  table(data_dem2[[var]], useNA = "ifany")
+})
+
+names(unique_values_tables) <- chr_vars
+unique_values_tables
+```
+
+```{r}
+data_dem3 <- data_dem2 %>%
+  mutate(
+    Race = ifelse(Race == "Native Hawaiian or Other Pacific Islander", "Asian", Race),
+    education = ifelse(education == "0 years", "Less than 12 years", education),
+    relative_pd = ifelse(relative_pd == "no", "No", relative_pd),
+    time_medication = as.numeric(time_medication)
+  ) %>%
+  filter(GroupID %in% c("GBA PD", "LRRK2 PD", "SPD"))
+
+num_unique_subject_id <- data_dem3 %>%
+  summarise(n_unique = n_distinct(participant_id)) %>%
+  pull(n_unique)
+cat("Exclude other genetic types, Subject N =", num_unique_subject_id, "\n")
+```
+
+```{r}
+data_dem4 <- data_dem3 %>%
+  filter(SAA %in% c("Negative", "Positive"))
+
+num_unique_subject_id <- data_dem4 %>%
+  summarise(n_unique = n_distinct(participant_id)) %>%
+  pull(n_unique)
+cat("Exclude inconclusive SAA results, Subject N =", num_unique_subject_id, "\n")
+```
+
+```{r}
+data_dem5 <- data_dem4 %>%
+  mutate(
+    GroupID = factor(GroupID, levels = c("SPD", "LRRK2 PD", "GBA PD")),
+    SAA = factor(SAA, levels = c("Negative", "Positive")),
+    Sex = factor(Sex, levels = c("Female", "Male")),
+    Ethnicity = factor(Ethnicity, levels = c("Not Hispanic or Latino", "Hispanic or Latino", "Unknown")),
+    Race = factor(Race, levels = c("White", "Asian", "Black or African American", "Multiracial", "Other", "Unknown")),
+    education = factor(education, levels = c("Less than 12 years", "12-16 years", "Greater than 16 years")),
+    parent_pd = factor(parent_pd, levels = c("No", "Yes", "Unknown")),
+    relative_pd = factor(relative_pd, levels = c("No", "Yes", "Unknown"))
+  )
+
+sapply(data_dem5, levels)
+```
+
+## Table 1
+
+```{r}
+vars <- c("age_baseline", "Sex", "Race", "Ethnicity", "education", "parent_pd", "relative_pd", "time_dx_to_baseline", "time_medication")
+catVars <- c("Sex", "Race", "Ethnicity", "education", "parent_pd", "relative_pd")
+
+table1 <- CreateTableOne(vars = vars, strata = c("SAA", "GroupID"), data = data_dem5, factorVars = catVars)
+
+table1_df <- print(table1) %>%
+  as.data.frame()
+table1_df <- tibble::rownames_to_column(table1_df, var = "Variable")
+
+kable(table1_df, format = "html", caption = "Table 1: Summary by GroupID and SAA") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"))
+
+# write_xlsx(table1_df, "Table 1.xlsx")
+```
+
+## Combine levels and save data_dem
+
+```{r}
+data_dem6 <- data_dem4 %>%
+  mutate(
+    Ethnicity = ifelse(Ethnicity == "Unknown", "Not Hispanic or Latino", Ethnicity),
+    Race = ifelse(!Race == "White", "Other", Race),
+    parent_pd = ifelse(parent_pd == "Unknown", "No", parent_pd),
+    relative_pd = ifelse(relative_pd == "Unknown", "No", relative_pd)
+    ) %>%
+  mutate(
+    GroupID = factor(GroupID, levels = c("SPD", "LRRK2 PD", "GBA PD")),
+    SAA = factor(SAA, levels = c("Negative", "Positive")),
+    Sex = factor(Sex, levels = c("Female", "Male")),
+    Ethnicity = factor(Ethnicity, levels = c("Not Hispanic or Latino", "Hispanic or Latino")),
+    Race = factor(Race, levels = c("White", "Other")),
+    education = factor(education, levels = c("Less than 12 years", "12-16 years", "Greater than 16 years")),
+    parent_pd = factor(parent_pd, levels = c("No", "Yes")),
+    relative_pd = factor(relative_pd, levels = c("No", "Yes"))
+  )
+
+sapply(data_dem6, levels)
+
+num_unique_subject_id <- data_dem6 %>%
+  summarise(n_unique = n_distinct(participant_id)) %>%
+  pull(n_unique)
+cat("Further exclude unknown SAA results, Subject N =", num_unique_subject_id, "\n")
+```
+
+```{r}
+data_dem <- data_dem6
+```
+
+# UPDRS III
+
+```{r}
+data_updrs1 <- read_excel(file_path, sheet = "UPDRS III OFF Scores")
+
+str(data_updrs1)
+head(data_updrs1)
+```
+
+```{r}
+data_updrs1_check <- data_updrs1 %>%
+  select(participant_id, `Group ID`, `GBA Mutation`, `SAA Result`) %>%
+  distinct()
+
+merged_check <- data_dem %>%
+  select(participant_id, GroupID, SAA) %>%
+  left_join(data_updrs1_check %>% select(participant_id, `Group ID`, `SAA Result`), by = "participant_id")
+
+differences <- merged_check %>%
+  filter(GroupID != `Group ID` | SAA != `SAA Result`)
+print(differences)
+```
+
+```{r}
+data_updrs2 <- data_updrs1 %>%
+  select(participant_id, visit_year, upd23a_medication_for_pd, mds_updrs_part_iii_summary_score, LEDD) %>%
+  left_join(data_dem, by = "participant_id") %>%
+  filter(GroupID %in% c("GBA PD", "LRRK2 PD", "SPD") & SAA %in% c("Negative", "Positive"))
+
+na_summary <- data_updrs2 %>%
+  summarise_all(~ sum(is.na(.)))%>%
+  pivot_longer(cols = everything(), names_to = "Variable", values_to = "MissingValues")
+print(na_summary)
+```
+
+```{r}
+bin_visit_year <- function(visit_year) {
+  case_when(
+    visit_year == 0 ~ "0",
+    visit_year >0 & visit_year < 0.25 ~ "3 months",
+    visit_year >= 0.25 & visit_year < 1 ~ paste0(floor(visit_year * 12 / 3) * 3, " months"),  # 3-month bins
+    visit_year >= 1 & visit_year < 1.5 ~ "12 months",
+    visit_year >= 1.5 & visit_year < 5 ~ paste0(round((visit_year - 1) / 0.5) / 2 + 1, " years"),  # 6-month bins
+    visit_year >= 5 ~ paste0(round(visit_year), " years")
+  )
+}
+
+visit_year_map <- c(
+  "0" = 0, "3 months" = 0.25, "6 months" = 0.5, "9 months" = 0.75, "12 months" = 1,
+  "1.5 years" = 1.5, "2 years" = 2, "2.5 years" = 2.5, "3 years" = 3,
+  "3.5 years" = 3.5, "4 years" = 4, "4.5 years" = 4.5, "5 years" = 5,
+  "6 years" = 6, "7 years" = 7, "8 years" = 8, "9 years" = 9,
+  "10 years" = 10, "11 years" = 11, "12 years" = 12, "13 years" = 13
+)
+```
+
+```{r}
+# Apply binning and convert to factor
+data_updrs3 <- data_updrs2 %>%
+  mutate(
+    visit_year_factor = factor(bin_visit_year(visit_year), 
+                               levels = c("0", "3 months", "6 months", "9 months", "12 months",
+                                          "1.5 years", "2 years", "2.5 years", "3 years",
+                                          "3.5 years", "4 years", "4.5 years", "5 years",
+                                          "6 years", "7 years", "8 years", "9 years",
+                                          "10 years", "11 years", "12 years", "13 years")),
+    visit_year_numeric = visit_year_map[as.character(visit_year_factor)]
+  )
+
+table(data_updrs3$visit_year_factor, useNA = "ifany")
+summary(data_updrs3$visit_year_numeric, useNA = "ifany")
+
+table(data_updrs3$upd23a_medication_for_pd, useNA = "ifany")
+```
+
+no need to filter by “No” medication
+
+```{r}
+baseline_score <- data_updrs3 %>%
+  arrange(participant_id, visit_year) %>%
+  group_by(participant_id) %>%
+  slice(1) %>%
+  ungroup() %>%
+  select(participant_id, baseline_score = mds_updrs_part_iii_summary_score)
+
+data_updrs4 <- data_updrs3 %>%
+  left_join(baseline_score, by = "participant_id") %>%
+  filter(!is.na(baseline_score)) %>%
+  arrange(participant_id, visit_year)
+
+num_unique_subject_id <- data_updrs4 %>%
+  summarise(n_unique = n_distinct(participant_id)) %>%
+  pull(n_unique)
+cat("UPDRS analysis, Subject N =", num_unique_subject_id, "\n")
+```
+
+```{r}
+data_updrs <- data_updrs4
+write_xlsx(data_updrs, "data_updrs.xlsx")
+```
+
+```{r}
+# data_updrs <- read_excel("/Users/xinyuanzhang/Library/CloudStorage/OneDrive-MassGeneralBrigham/MC1R/1_LRRK2/EBioM/data_updrs.xlsx")
+
+data_updrs_baseline <- data_updrs %>%
+  group_by(participant_id) %>%
+  slice(1) %>%
+  ungroup()
+
+table1_updrs <-CreateTableOne(vars = "baseline_score", strata = c("SAA", "GroupID"), data = data_updrs_baseline)
+
+table1_updrs_df <- print(table1_updrs, digits = 1) %>%
+  as.data.frame() %>%
+  mutate(across(where(is.character), ~ gsub("(\\d+\\.\\d{1})\\d*", "\\1", .)))
+
+kable(table1_updrs_df, format = "html") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"))
+```
+
+```{r}
+ledd <- data_updrs %>%
+  mutate(visit_year_rounded = round(visit_year)) %>%
+  group_by(participant_id, visit_year_rounded) %>%
+  summarise(LEDD = first(LEDD), 
+            upd23a_medication_for_pd = first(upd23a_medication_for_pd),
+            .groups = "drop") %>%
+  select(participant_id, visit_year_rounded, LEDD, upd23a_medication_for_pd)
+```
+
+# UPDRS-I
+
+```{r}
+data_parti1 <- read_excel(file_path, sheet = "UPDRS I")
+
+str(data_parti1)
+head(data_parti1)
+```
+
+```{r}
+data_parti2 <- data_parti1 %>%
+  select(participant_id, visit_year, mds_updrs_part_i_summary_score) %>%
+  left_join(data_dem, by = "participant_id") %>%
+  mutate(visit_year_rounded = round(visit_year)) %>%
+  left_join(ledd, by = c("participant_id", "visit_year_rounded")) %>%
+  select(-visit_year_rounded) %>%
+  filter(GroupID %in% c("GBA PD", "LRRK2 PD", "SPD") & SAA %in% c("Negative", "Positive"))
+
+na_summary <- data_parti2 %>%
+  summarise_all(~ sum(is.na(.)))%>%
+  pivot_longer(cols = everything(), names_to = "Variable", values_to = "MissingValues")
+print(na_summary)
+
+data_parti3 <- data_parti2 %>%
+  arrange(participant_id, visit_year) %>%
+  group_by(participant_id) %>%
+  mutate(LEDD = ifelse(is.na(LEDD), lag(LEDD, order_by = visit_year), LEDD)) %>%
+  ungroup() %>%
+  mutate(LEDD = ifelse(is.na(LEDD), 0, LEDD))
+```
+
+```{r}
+data_parti4 <- data_parti3 %>%
+  filter(visit_year <= 13) %>%
+  mutate(
+    visit_year_factor = factor(bin_visit_year(visit_year), 
+                               levels = c("0", "3 months", "6 months", "9 months", "12 months",
+                                          "1.5 years", "2 years", "2.5 years", "3 years",
+                                          "3.5 years", "4 years", "4.5 years", "5 years",
+                                          "6 years", "7 years", "8 years", "9 years",
+                                          "10 years", "11 years", "12 years", "13 years"))
+  )
+
+table(data_parti4$visit_year_factor, useNA = "ifany")
+```
+
+```{r}
+baseline_score <- data_parti4 %>%
+  arrange(participant_id, visit_year) %>%
+  group_by(participant_id) %>%
+  slice(1) %>%
+  ungroup() %>%
+  select(participant_id, baseline_score = mds_updrs_part_i_summary_score)
+
+data_parti5 <- data_parti4 %>%
+  left_join(baseline_score, by = "participant_id") %>%
+  filter(!is.na(baseline_score))
+
+num_unique_subject_id <- data_parti5 %>%
+  summarise(n_unique = n_distinct(participant_id)) %>%
+  pull(n_unique)
+cat("UPDRS-I analysis, Subject N =", num_unique_subject_id, "\n")
+```
+
+```{r}
+data_parti <- data_parti5
+write_xlsx(data_parti, "data_parti.xlsx")
+```
+
+```{r}
+# data_parti <- read_excel("/Users/xinyuanzhang/Library/CloudStorage/OneDrive-MassGeneralBrigham/MC1R/1_LRRK2/EBioM/data_parti.xlsx")
+
+data_parti_baseline <- data_parti %>%
+  group_by(participant_id) %>%
+  slice(1) %>%
+  ungroup()
+
+table1_parti <-CreateTableOne(vars = "baseline_score", strata = c("SAA", "GroupID"), data = data_parti_baseline)
+
+table1_parti_df <- print(table1_parti, digits = 1) %>%
+  as.data.frame()
+
+kable(table1_parti_df, format = "html") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"))
+```
+
+# MoCA
+
+```{r}
+data_moca1 <- read_excel(file_path, sheet = "MoCA Scores")
+
+str(data_moca1)
+head(data_moca1)
+```
+
+```{r}
+data_moca2 <- data_moca1 %>%
+  select(participant_id, visit_year, MoCA_score) %>%
+  left_join(data_dem, by = "participant_id") %>%
+  mutate(visit_year_rounded = round(visit_year)) %>%
+  left_join(ledd, by = c("participant_id", "visit_year_rounded")) %>%
+  select(-visit_year_rounded) %>%
+  filter(GroupID %in% c("GBA PD", "LRRK2 PD", "SPD") & SAA %in% c("Negative", "Positive"))
+
+na_summary <- data_moca2 %>%
+  summarise_all(~ sum(is.na(.)))%>%
+  pivot_longer(cols = everything(), names_to = "Variable", values_to = "MissingValues")
+print(na_summary)
+
+data_moca3 <- data_moca2 %>%
+  arrange(participant_id, visit_year) %>%
+  group_by(participant_id) %>%
+  mutate(LEDD = ifelse(is.na(LEDD), lag(LEDD, order_by = visit_year), LEDD)) %>%
+  ungroup() %>%
+  mutate(LEDD = ifelse(is.na(LEDD), 0, LEDD))
+```
+
+```{r}
+data_moca4 <- data_moca3 %>%
+  filter(visit_year <= 13) %>%
+  mutate(
+    visit_year_factor = factor(round(visit_year), 
+                               levels = c("0", "1", "2", "3", "4", "5",
+                                          "6", "7", "8", "9",
+                                          "10", "11", "12", "13"))
+  )
+
+table(data_moca4$visit_year_factor, useNA = "ifany")
+```
+
+```{r}
+baseline_score <- data_moca4 %>%
+  arrange(participant_id, visit_year) %>%
+  group_by(participant_id) %>%
+  slice(1) %>%
+  ungroup() %>%
+  select(participant_id, baseline_score = MoCA_score)
+
+data_moca5 <- data_moca4 %>%
+  left_join(baseline_score, by = "participant_id") %>%
+  filter(!is.na(baseline_score))
+
+num_unique_subject_id <- data_moca5 %>%
+  summarise(n_unique = n_distinct(participant_id)) %>%
+  pull(n_unique)
+cat("MoCA Scores analysis, Subject N =", num_unique_subject_id, "\n")
+```
+
+```{r}
+data_moca <- data_moca5
+write_xlsx(data_moca, "data_moca.xlsx")
+```
+
+```{r}
+# data_moca <- read_excel("/Users/xinyuanzhang/Library/CloudStorage/OneDrive-MassGeneralBrigham/MC1R/1_LRRK2/EBioM/data_moca.xlsx")
+
+data_moca_baseline <- data_moca %>%
+  group_by(participant_id) %>%
+  slice(1) %>%
+  ungroup()
+
+table1_moca <-CreateTableOne(vars = "baseline_score", strata = c("SAA", "GroupID"), data = data_moca_baseline)
+
+table1_moca_df <- print(table1_moca, digits = 1) %>%
+  as.data.frame() %>%
+  mutate(across(where(is.character), ~ gsub("(\\d+\\.\\d{1})\\d*", "\\1", .)))
+
+kable(table1_moca_df, format = "html") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"))
+```
+
+# DaTscan
+
+```{r}
+data_datscan1 <- read_excel(file_path, sheet = "DAT-SPECT SBR")
+
+str(data_datscan1)
+head(data_datscan1)
+```
+
+```{r}
+data_datscan2 <- data_datscan1 %>%
+  mutate(
+    sbr_caudate = rowMeans(select(., sbr_caudate_i, sbr_caudate_c), na.rm = TRUE),
+    sbr_putamen = rowMeans(select(., sbr_putamen_i, sbr_putamen_c), na.rm = TRUE)
+    ) %>%
+  select(participant_id, visit_year, sbr_caudate, sbr_putamen) %>%
+  left_join(data_dem, by = "participant_id") %>%
+  mutate(visit_year_rounded = round(visit_year)) %>%
+  left_join(ledd, by = c("participant_id", "visit_year_rounded")) %>%
+  select(-visit_year_rounded) %>%
+  filter(GroupID %in% c("GBA PD", "LRRK2 PD", "SPD") & SAA %in% c("Negative", "Positive"))
+
+na_summary <- data_datscan2 %>%
+  summarise_all(~ sum(is.na(.)))%>%
+  pivot_longer(cols = everything(), names_to = "Variable", values_to = "MissingValues")
+print(na_summary)
+
+data_datscan3 <- data_datscan2 %>%
+  arrange(participant_id, visit_year) %>%
+  group_by(participant_id) %>%
+  mutate(LEDD = ifelse(is.na(LEDD), lag(LEDD, order_by = visit_year), LEDD)) %>%
+  ungroup() %>%
+  mutate(LEDD = ifelse(is.na(LEDD), 0, LEDD))
+```
+
+```{r}
+data_datscan4 <- data_datscan3 %>%
+  filter(visit_year <= 7) %>%
+  mutate(
+    visit_year_factor = factor(round(visit_year), 
+                               levels = c("0", "1", "2", "3", "4", "5"))
+  )
+
+table(data_datscan4$visit_year_factor, useNA = "ifany")
+```
+
+```{r}
+baseline_score <- data_datscan4 %>%
+  arrange(participant_id, visit_year) %>%
+  group_by(participant_id) %>%
+  slice(1) %>%
+  ungroup() %>%
+  select(participant_id, baseline_caudate = sbr_caudate, baseline_putamen = sbr_putamen)
+
+data_datscan5 <- data_datscan4 %>%
+  left_join(baseline_score, by = "participant_id") %>%
+  filter(!is.na(baseline_caudate))
+
+num_unique_subject_id <- data_datscan5 %>%
+  summarise(n_unique = n_distinct(participant_id)) %>%
+  pull(n_unique)
+cat("DAT-SPECT SBR analysis, Subject N =", num_unique_subject_id, "\n")
+```
+
+```{r}
+data_datscan <- data_datscan5
+write_xlsx(data_datscan, "data_datscan.xlsx")
+```
+
+```{r}
+# data_datscan <- read_excel("/Users/xinyuanzhang/Library/CloudStorage/OneDrive-MassGeneralBrigham/MC1R/1_LRRK2/EBioM/data_datscan.xlsx")
+
+data_datscan_baseline <- data_datscan %>%
+  group_by(participant_id) %>%
+  slice(1) %>%
+  ungroup()
+
+table1_datscan <-CreateTableOne(vars = c("baseline_caudate", "baseline_putamen"), strata = c("SAA", "GroupID"), data = data_datscan_baseline)
+
+table1_datscan_df <- print(table1_datscan, digits = 1) %>%
+  as.data.frame()
+
+kable(table1_datscan_df, format = "html") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"))
+```
+
+# Schwab and England
+
+```{r}
+data_schwab1 <- read_excel(file_path, sheet = "Schwab and England")
+
+str(data_schwab1)
+head(data_schwab1)
+```
+
+```{r}
+data_schwab2 <- data_schwab1 %>%
+  left_join(data_dem, by = "participant_id") %>%
+  mutate(visit_year_rounded = round(visit_year)) %>%
+  left_join(ledd, by = c("participant_id", "visit_year_rounded")) %>%
+  select(-visit_year_rounded) %>%
+  filter(GroupID %in% c("GBA PD", "LRRK2 PD", "SPD") & SAA %in% c("Negative", "Positive"))
+
+na_summary <- data_schwab2 %>%
+  summarise_all(~ sum(is.na(.)))%>%
+  pivot_longer(cols = everything(), names_to = "Variable", values_to = "MissingValues")
+print(na_summary)
+
+data_schwab3 <- data_schwab2 %>%
+  arrange(participant_id, visit_year) %>%
+  group_by(participant_id) %>%
+  mutate(LEDD = ifelse(is.na(LEDD), lag(LEDD, order_by = visit_year), LEDD)) %>%
+  ungroup() %>%
+  mutate(LEDD = ifelse(is.na(LEDD), 0, LEDD))
+```
+
+```{r}
+data_schwab4 <- data_schwab3 %>%
+  filter(visit_year <= 13) %>%
+  mutate(
+    visit_year_factor = factor(bin_visit_year(visit_year), 
+                               levels = c("0", "3 months", "6 months", "9 months", "12 months",
+                                          "1.5 years", "2 years", "2.5 years", "3 years",
+                                          "3.5 years", "4 years", "4.5 years", "5 years",
+                                          "6 years", "7 years", "8 years", "9 years",
+                                          "10 years", "11 years", "12 years", "13 years"))
+  )
+
+table(data_schwab4$visit_year_factor, useNA = "ifany")
+```
+
+```{r}
+baseline_score <- data_schwab4 %>%
+  arrange(participant_id, visit_year) %>%
+  group_by(participant_id) %>%
+  slice(1) %>%
+  ungroup() %>%
+  select(participant_id, baseline_score = mds_updrs_part_iii_summary_score)
+
+data_schwab5 <- data_schwab4 %>%
+  left_join(baseline_score, by = "participant_id") %>%
+  filter(!is.na(baseline_score))
+
+num_unique_subject_id <- data_schwab5 %>%
+  summarise(n_unique = n_distinct(participant_id)) %>%
+  pull(n_unique)
+cat("UPDRS-I analysis, Subject N =", num_unique_subject_id, "\n")
+```
+
+```{r}
+data_schwab <- data_schwab5
+write_xlsx(data_schwab, "data_schwab.xlsx")
+```
+
+## Main analysis
+
+Performed in SAS
+Files:
+saa_main_20250228.sas
+output_saa_main_20250303.pdf
+
+# Plot
+
+## Plot UPDRS-III
+
+```{r}
+# predicted_path <- "C:/Users/hpxzh/OneDrive - Mass General Brigham/MC1R/1_LRRK2/EBioM/predicted_data.xlsx"
+predicted_path <- "/Users/xinyuanzhang/Library/CloudStorage/OneDrive-MassGeneralBrigham/MC1R/1_LRRK2/EBioM/predicted_data.xlsx"
+
+predicted_updrs <- read_excel(predicted_path, sheet = "updrs")
+
+str(predicted_updrs)
+```
+
+```{r}
+predicted_updrs_summary <- predicted_updrs %>%
+  group_by(visit_year_factor, SAA, GroupID) %>%
+  summarise(
+    mean_score = mean(mds_updrs_part_iii_summary_score, na.rm = TRUE),
+    sd_score = sd(mds_updrs_part_iii_summary_score, na.rm = TRUE),
+    mean_predicted = mean(predicted_updrs, na.rm = TRUE),
+    sd_predicted = sd(predicted_updrs, na.rm = TRUE),
+    n = n(),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    se_score = 1.96*sd_score / sqrt(n),
+    se_predicted = 1.96*sd_predicted / sqrt(n),
+    visit_year_numeric = visit_year_map[as.character(visit_year_factor)]  # Assign actual years
+    ) 
+
+head(predicted_updrs_summary)
+```
+
+```{r}
+plot_updrs_obs <- ggplot(predicted_updrs_summary, aes(x = visit_year_numeric, color = SAA, group = SAA)) +
+  
+  # Plot mean points and error bars for mds_updrs_part_iii_summary_score
+  geom_point(aes(y = mean_score), size = 2) +
+  geom_errorbar(aes(y = mean_score, ymin = mean_score - se_score, ymax = mean_score + se_score), width = 0.2) +
+
+  facet_wrap(~ GroupID) +
+  theme_classic() +
+  labs(
+    x = "Time from Baseline (Years)",
+    y = "MDS-UPDRS Part III Score (Observed & Predicted)",
+    color = "α-synuclein SAA"
+  ) +
+  theme(
+    legend.position = "bottom",
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  ) +
+  scale_color_brewer(palette = "Set2") +
+  scale_fill_brewer(palette = "Set2") 
+
+model_coefficients <- data.frame(
+  GroupID = rep(c("GBA PD", "LRRK2 PD", "SPD"), each = 2),
+  SAA = rep(c("Negative", "Positive"), times = 3),
+  intercept = c(20, 25.2, 17.5, 20.1, 19.1, 20.1),
+  slope = c(2.40, 2.67, 1.76, 2.39, 2.39, 2.46),
+  slope_lower = c(-0.18, 1.91, 0.93, 1.86, 1.36, 2.20),
+  slope_upper = c(4.99, 3.44, 2.60, 2.92, 3.42, 2.72)
+)
+
+model_lines <- model_coefficients %>%
+  crossing(visit_year_numeric = seq(0, 7, length.out = 100)) %>%
+  mutate(
+    predicted = intercept + slope * visit_year_numeric,
+    predicted_lower = intercept + slope_lower * visit_year_numeric,
+    predicted_upper = intercept + slope_upper * visit_year_numeric
+  )
+
+plot_updrs <- plot_updrs_obs + 
+  geom_ribbon(data = model_lines, aes(x = visit_year_numeric, ymin = predicted_lower, ymax = predicted_upper, fill = SAA, group = SAA), 
+              alpha = 0.3, color = NA) +
+  
+  geom_line(data = model_lines, aes(x = visit_year_numeric, y = predicted, color = SAA, group = SAA), 
+            linetype = "solid", linewidth = 1)
+
+plot_updrs
+ggsave("plot_main_updrs.png", plot=plot_updrs, width = 12.3, height = 6.3)
+```
+
+## Plot UPDRS-I 
+
+```{r}
+predicted_parti <- read_excel(predicted_path, sheet = "parti")
+
+predicted_parti_summary <- predicted_parti %>%
+  group_by(visit_year_factor, SAA, GroupID) %>%
+  summarise(
+    mean_score = mean(mds_updrs_part_i_summary_score, na.rm = TRUE),
+    sd_score = sd(mds_updrs_part_i_summary_score, na.rm = TRUE),
+    mean_predicted = mean(predicted_parti, na.rm = TRUE),
+    sd_predicted = sd(predicted_parti, na.rm = TRUE),
+    n = n(),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    se_score = 1.96*sd_score / sqrt(n),
+    se_predicted = 1.96*sd_predicted / sqrt(n),
+    visit_year_numeric = visit_year_map[as.character(visit_year_factor)]  # Assign actual years
+    ) 
+
+head(predicted_parti_summary)
+```
+
+```{r}
+plot_parti_obs <- ggplot(predicted_parti_summary, aes(x = visit_year_numeric, color = SAA, group = SAA)) +
+  
+  geom_point(aes(y = mean_score), size = 2) +
+  geom_errorbar(aes(y = mean_score, ymin = mean_score - se_score, ymax = mean_score + se_score), width = 0.2) +
+
+  facet_wrap(~ GroupID) +
+  theme_classic() +
+  labs(
+    x = "Time from Baseline (Years)",
+    y = "MDS-UPDRS Part I Score (Observed & Predicted)",
+    color = "α-synuclein SAA"
+  ) +
+  theme(
+    legend.position = "bottom",
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  ) +
+  scale_color_brewer(palette = "Set2") +
+  scale_fill_brewer(palette = "Set2") 
+
+parti_coefficients <- data.frame(
+  GroupID = rep(c("GBA PD", "LRRK2 PD", "SPD"), each = 2),
+  SAA = rep(c("Negative", "Positive"), times = 3),
+  intercept = c(2.75, 5.68, 6.12, 5.62, 6.29, 4.25),
+  slope = c(0.19, 0.51, 0.27, 0.36, 0.54, 0.54),
+  slope_lower = c(-0.34, 0.36, 0.07, 0.23, 0.21, 0.46), 
+  slope_upper = c(0.72, 0.66, 0.48, 0.49, 0.87, 0.61)
+)
+
+parti_lines <- parti_coefficients %>%
+  crossing(visit_year_numeric = seq(0, 7, length.out = 100)) %>%
+  mutate(
+    predicted = intercept + slope * visit_year_numeric,
+    predicted_lower = intercept + slope_lower * visit_year_numeric,
+    predicted_upper = intercept + slope_upper * visit_year_numeric
+  )
+
+plot_parti <- plot_parti_obs + 
+  geom_ribbon(data = parti_lines, aes(x = visit_year_numeric, ymin = predicted_lower, ymax = predicted_upper, fill = SAA, group = SAA), 
+              alpha = 0.3, color = NA) +
+  
+  geom_line(data = parti_lines, aes(x = visit_year_numeric, y = predicted, color = SAA, group = SAA), 
+            linetype = "solid", linewidth = 1)
+
+plot_parti
+ggsave("plot_main_parti.png", plot=plot_parti, width = 12.3, height = 6.3)
+```
+
+## Plot MoCA 
+
+```{r}
+predicted_moca <- read_excel(predicted_path, sheet = "moca")
+
+predicted_moca_summary <- predicted_moca %>%
+  mutate(visit_year = round(visit_year)) %>%
+  group_by(visit_year, SAA, GroupID) %>%
+  summarise(
+    mean_score = mean(MoCA_score, na.rm = TRUE),
+    sd_score = sd(MoCA_score, na.rm = TRUE),
+    mean_predicted = mean(predicted_moca, na.rm = TRUE),
+    sd_predicted = sd(predicted_moca, na.rm = TRUE),
+    n = n(),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    se_score = 1.96*sd_score / sqrt(n),
+    se_predicted = 1.96*sd_predicted / sqrt(n),
+    ) 
+
+head(predicted_moca_summary)
+```
+
+```{r}
+plot_moca_obs <- ggplot(predicted_moca_summary, aes(x = visit_year, color = SAA, group = SAA)) +
+  
+  geom_point(aes(y = mean_score), size = 2) +
+  geom_errorbar(aes(y = mean_score, ymin = mean_score - se_score, ymax = mean_score + se_score), width = 0.2) +
+  
+  facet_wrap(~ GroupID) +
+  theme_classic() +
+  labs(
+    x = "Time from Baseline (Years)",
+    y = "MoCA Score (Observed & Predicted)",
+    color = "α-synuclein SAA"
+  ) +
+  theme(
+    legend.position = "bottom",
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  ) +
+  scale_color_brewer(palette = "Set2") +
+  scale_fill_brewer(palette = "Set2") 
+
+moca_coefficients <- data.frame(
+  GroupID = rep(c("GBA PD", "LRRK2 PD", "SPD"), each = 2),
+  SAA = rep(c("Negative", "Positive"), times = 3),
+  intercept = c(26.2, 26.4, 25.1, 26.6, 26.8, 27.2),
+  slope = c(-0.19, -0.28, 0.03, -0.05, -0.34, -0.18),
+  slope_lower = c(-0.71, -0.43, -0.14, -0.16, -0.66, -0.25),
+  slope_upper = c(0.32, -0.13, 0.19, 0.05, -0.01, -0.11)
+)
+
+moca_lines <- moca_coefficients %>%
+  crossing(visit_year = seq(0, 7, length.out = 100)) %>%
+  mutate(
+    predicted = intercept + slope * visit_year,
+    predicted_lower = intercept + slope_lower * visit_year,
+    predicted_upper = intercept + slope_upper * visit_year
+  )
+
+plot_moca <- plot_moca_obs + 
+  geom_ribbon(data = moca_lines, aes(x = visit_year, ymin = predicted_lower, ymax = predicted_upper, fill = SAA, group = SAA), 
+              alpha = 0.3, color = NA) +
+  
+  geom_line(data = moca_lines, aes(x = visit_year, y = predicted, color = SAA, group = SAA), 
+            linetype = "solid", linewidth = 1)
+
+plot_moca
+ggsave("plot_main_moca.png", plot=plot_moca, width = 12.3, height = 6.3)
+```
+
+## Plot DaTScan
+
+```{r}
+predicted_datscan <- read_excel(predicted_path, sheet = "datscan")
+
+predicted_datscan_summary <- predicted_datscan %>%
+  mutate(visit_year = round(visit_year)) %>%
+  group_by(visit_year, SAA, GroupID) %>%
+  summarise(
+    mean_caudate = mean(sbr_caudate, na.rm = TRUE),
+    sd_caudate = sd(sbr_caudate, na.rm = TRUE),
+    mean_predicted_caudate = mean(predicted_caudate, na.rm = TRUE),
+    sd_predicted_caudate = sd(predicted_caudate, na.rm = TRUE),
+    
+    mean_putamen = mean(sbr_putamen, na.rm = TRUE),
+    sd_putamen = sd(sbr_putamen, na.rm = TRUE),
+    mean_predicted_putamen = mean(predicted_putamen, na.rm = TRUE),
+    sd_predicted_putamen = sd(predicted_putamen, na.rm = TRUE),
+    n = n(),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    se_caudate = 1.96*sd_caudate / sqrt(n),
+    se_predicted_caudate = 1.96*sd_predicted_caudate / sqrt(n),
+    
+    se_putamen = 1.96*sd_putamen / sqrt(n),
+    se_predicted_putamen = 1.96*sd_predicted_putamen / sqrt(n)
+    ) 
+
+head(predicted_datscan_summary)
+```
+
+### Caudate 
+
+```{r}
+plot_caudate_obs  <- ggplot(predicted_datscan_summary, aes(x = visit_year, color = SAA, group = SAA)) +
+  
+  geom_point(aes(y = mean_caudate), size = 2) +
+  geom_errorbar(aes(y = mean_caudate, ymin = mean_caudate - se_caudate, ymax = mean_caudate + se_caudate), width = 0.2) +
+  
+  facet_wrap(~ GroupID) +
+  theme_classic() +
+  labs(
+    x = "Time from Baseline (Years)",
+    y = "SBR Caudate (Observed & Predicted)",
+    color = "α-synuclein SAA"
+  ) +
+  theme(
+    legend.position = "bottom",
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  ) +
+  scale_color_brewer(palette = "Set2") +
+  scale_fill_brewer(palette = "Set2") 
+
+caudate_coefficients <- data.frame(
+  GroupID = rep(c("GBA PD", "LRRK2 PD", "SPD"), each = 2),
+  SAA = rep(c("Negative", "Positive"), times = 3),
+  intercept = c(1.59, 1.85, 1.89, 1.92, 1.86, 1.98),
+  slope = c(-0.11, -0.14, -0.11, -0.13, -0.12, -0.13),
+  slope_lower = c(-0.23, -0.18, -0.14, -0.15, -0.17, -0.14),
+  slope_upper = c(0.01, -0.11, -0.08, -0.11, -0.07, -0.11)
+)
+
+caudate_lines <- caudate_coefficients %>%
+  crossing(visit_year = seq(0, 5, length.out = 100)) %>%
+  mutate(
+    predicted = intercept + slope * visit_year,
+    predicted_lower = intercept + slope_lower * visit_year,
+    predicted_upper = intercept + slope_upper * visit_year
+  )
+
+plot_caudate <- plot_caudate_obs + 
+  geom_ribbon(data = caudate_lines, aes(x = visit_year, ymin = predicted_lower, ymax = predicted_upper, fill = SAA, group = SAA), 
+              alpha = 0.3, color = NA) +
+  
+  geom_line(data = caudate_lines, aes(x = visit_year, y = predicted, color = SAA, group = SAA), 
+            linetype = "solid", linewidth = 1)
+
+plot_caudate
+ggsave("plot_main_caudate.png", plot=plot_caudate, width = 12.3, height = 6.3)
+```
+
+### Putamen
+
+```{r}
+plot_putamen_obs <- ggplot(predicted_datscan_summary, aes(x = visit_year, color = SAA, group = SAA)) +
+  
+  geom_point(aes(y = mean_putamen), size = 2) +
+  geom_errorbar(aes(y = mean_putamen, ymin = mean_putamen - se_putamen, ymax = mean_putamen + se_putamen), width = 0.2) +
+  
+  facet_wrap(~ GroupID) +
+  theme_classic() +
+  labs(
+    x = "Time from Baseline (Years)",
+    y = "SBR Putamen (Observed & Predicted)",
+    color = "α-synuclein SAA"
+  ) +
+  theme(
+    legend.position = "bottom",
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  ) +
+  scale_color_brewer(palette = "Set2") +
+  scale_fill_brewer(palette = "Set2") 
+
+putamen_coefficients <- data.frame(
+  GroupID = rep(c("GBA PD", "LRRK2 PD", "SPD"), each = 2),
+  SAA = rep(c("Negative", "Positive"), times = 3),
+  intercept = c(1.02, 0.73, 0.90, 0.74, 0.95, 0.81),
+  slope = c(-0.06, -0.07, -0.06, -0.07, -0.05, -0.06),
+  slope_lower = c(-0.10, -0.08, -0.08, -0.08, -0.08, -0.07),
+  slope_upper = c(-0.02, -0.06, -0.05, -0.06, -0.03, -0.06)
+)
+
+putamen_lines <- putamen_coefficients %>%
+  crossing(visit_year = seq(0, 5, length.out = 100)) %>%
+  mutate(
+    predicted = intercept + slope * visit_year,
+    predicted_lower = intercept + slope_lower * visit_year,
+    predicted_upper = intercept + slope_upper * visit_year
+  )
+
+plot_putamen <- plot_putamen_obs + 
+  geom_ribbon(data = putamen_lines, aes(x = visit_year, ymin = predicted_lower, ymax = predicted_upper, fill = SAA, group = SAA), 
+              alpha = 0.3, color = NA) +
+  
+  geom_line(data = putamen_lines, aes(x = visit_year, y = predicted, color = SAA, group = SAA), 
+            linetype = "solid", linewidth = 1)
+
+plot_putamen
+ggsave("plot_main_putamen.png", plot=plot_putamen, width = 12.3, height = 6.3)
+```
+
+Alternative codes for plot:
+  # Plot linear trend for predicted_updrs
+  geom_smooth(aes(y = mean_predicted), method = "lm", formula = y ~ x, linewidth = 1, se = FALSE) +
+  geom_smooth(aes(y = mean_predicted, fill = SAA), method = "lm", formula = y ~ x, se = TRUE, alpha = 0.5, color = NA, show.legend = FALSE) +
+  
+
